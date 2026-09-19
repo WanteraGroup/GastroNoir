@@ -222,6 +222,8 @@
 const SUPABASE_URL = "https://yoqalnkrfpzsaxvotwno.supabase.co";
 const SUPABASE_KEY = "sb_publishable_E_OXDZvzjTkSzpJTpzYFWg_Tw7GNrhy";
 const ADMIN_EMAIL  = "kekmajomautokozmetika@gmail.com";
+// Az Auth visszatérési címe mindig az alkalmazás éles címe legyen, ne a GitHub Pages régi címe.
+const AUTH_REDIRECT_URL = "https://gastro-noir.vercel.app/";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let me = null;         // { id, email }
@@ -278,7 +280,7 @@ async function doAuth(mode){
   $("a-go").disabled=true;
   try{
     if(mode==="signup"){
-      const { data, error } = await db.auth.signUp({ email, password:pass, options:{data:{full_name:name}} });
+      const { data, error } = await db.auth.signUp({ email, password:pass, options:{data:{full_name:name}, emailRedirectTo:AUTH_REDIRECT_URL} });
       if(error) throw error;
       if(data.session){
         closeModal();
@@ -337,7 +339,7 @@ async function sendReset(){
   const email=$("f-email").value.trim(), msg=$("f-msg"); msg.className="msg";
   if(!email){ msg.className="msg err"; msg.textContent="Adj meg egy e-mail-címet."; return; }
   $("f-go").disabled=true;
-  const {error}=await db.auth.resetPasswordForEmail(email,{redirectTo:location.href.split("#")[0]});
+  const {error}=await db.auth.resetPasswordForEmail(email,{redirectTo:AUTH_REDIRECT_URL});
   $("f-go").disabled=false;
   if(error){ msg.className="msg err"; msg.textContent="Hiba: "+error.message; return; }
   msg.className="msg ok";
