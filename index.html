@@ -243,7 +243,29 @@ const isAdmin = () => myProfile && myProfile.role === "admin";
 const isMajom = () => mySub && mySub.plan === "majom";
 const isPaid  = () => isMajom() || (mySub && (mySub.plan==="premium"||mySub.plan==="yearly") && mySub.status==="active" && (!mySub.expires_at || new Date(mySub.expires_at)>new Date()));
 
-/* ================= AUTH ================= */
+/* ================= NAVIGÁCIÓ ================= */
+function renderNav(){
+  const ctn = $("nav-cta");
+  const adminLink = document.querySelector('.nav-links a[onclick*="admin-sec"]');
+
+  if(adminLink) adminLink.style.display = isAdmin() ? "" : "none";
+
+  if(!ctn) return;
+
+  if(me){
+    const safeEmail = String(me.email || "").replace(/[&<>"']/g, ch => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
+    }[ch]));
+    ctn.innerHTML =
+      '<span style="color:var(--dim);font-size:13px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+safeEmail+'">'+safeEmail+'</span>' +
+      '<button class="btn line sm" onclick="logout()">Kijelentkezés</button>';
+  }else{
+    ctn.innerHTML =
+      '<button class="btn line sm" onclick="openAuth(\'login\')">Bejelentkezés</button>' +
+      '<button class="btn gold sm" onclick="openAuth(\'signup\')">Regisztráció</button>';
+  }
+}
+\n/* ================= AUTH ================= */
 function openAuth(mode){
   if(me){ logout(); return; }
   const isLogin = mode==="login";
