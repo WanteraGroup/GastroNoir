@@ -261,26 +261,63 @@ function openAuth(mode){
   $("a-go").onclick = () => doAuth(mode);
   $("a-pass").addEventListener("keydown",e=>{ if(e.key==="Enter") doAuth(mode); });
 }
+async function resendConfirmation(){
+  const email=$("a-email")?.value.trim();
+  const msg=$("a-msg");
+  if(!email){ msg.className="msg err"; msg.textContent="Előbb add meg az e-mail-címedet."; return; }
+  const {error}=await db.auth.resend({type:"signup",email});
+  if(error){ msg.className="msg err"; msg.textContent="Nem sikerült újraküldeni: "+error.message; return; }
+  msg.className="msg ok"; msg.textContent="Az új megerősítő e-mailt elküldtük. Nézd meg a spam mappát is.";
+}
 async function doAuth(mode){
   const email=$("a-email").value.trim(), pass=$("a-pass").value;
   const name = $("a-name") ? $("a-name").value.trim() : "";
   const msg=$("a-msg"); msg.className="msg";
   if(!email||!pass){ msg.className="msg err"; msg.textContent="Adj meg e-mailt és jelszót."; return; }
+  if(pass.length<6){ msg.className="msg err"; msg.textContent="A jelszó legalább 6 karakter legyen."; return; }
   $("a-go").disabled=true;
   try{
     if(mode==="signup"){
-      const { error } = await db.auth.signUp({ email, password: pass, options:{ data:{ full_name:name } } });
+      const { data, error } = await db.auth.signUp({ email, password:pass, options:{data:{full_name:name}} });
       if(error) throw error;
-      msg.className="msg ok"; msg.textContent="Sikeres regisztráció! Ha e-mail-megerősítés kell, nézd meg a postaládád.";
+      if(data.session){
+        closeModal();
+        await loadMe(data.session);
+        renderNav();
+        toast("Sikeres regisztráció ✦");
+      }else{
+        msg.className="msg ok";
+        msg.innerHTML="Regisztráció sikeres. <b>E-mail-megerősítés szükséges.</b><br>Nézd meg a postaládád, majd kattints a megerősítő linkre.<br><button class='btn line sm' style='margin-top:10px' onclick='resendConfirmation()'>Megerősítő e-mail újraküldése</button>";
+      }
     } else {
-      const { error } = await db.auth.signInWithPassword({ email, password: pass });
+      const { data, error } = await db.auth.signInWithPassword({email,password:pass});
       if(error) throw error;
+      if(!data.session) throw new Error("A bejelentkezés nem hozott létre munkamenetet.");
+      closeModal();
+      await loadMe(data.session);
+      renderNav();
+      if(isAdmin()) $("admin-sec").classList.remove("hidden");
+      toast("Sikeres bejelentkezés ✦");
     }
   }catch(e){
-    msg.className="msg err"; msg.textContent = e.message || "Hiba történt.";
+    const raw=e?.message||"Ismeretlen hiba";
+    msg.className="msg err";
+    if(/email not confirmed/i.test(raw)){
+      msg.innerHTML="Az e-mail-címed még nincs megerősítve.<br><button class='btn line sm' style='margin-top:10px' onclick='resendConfirmation()'>Megerősítő e-mail újraküldése</button>";
+    }else if(/invalid login credentials/i.test(raw)){
+      msg.textContent="Hibás e-mail-cím vagy jelszó.";
+    }else{
+      msg.textContent="Bejelentkezési hiba: "+raw;
+    }
   }finally{ $("a-go").disabled=false; }
 }
-async function logout(){ await db.auth.signOut(); me=null; myProfile=null; mySub=null; renderNav(); $("admin-sec").classList.add("hidden"); toast("Kijelentkeztél"); }
+async function logout(){
+  await db.auth.signOut();
+  me=null; myProfile=null; mySub=null;
+  renderNav();
+  $("admin-sec").classList.add("hidden");
+  toast("Kijelentkeztél");
+}
 
 /* ---------- ELFELEJTETT JELSZÓ ---------- */
 function openForgot(){
@@ -300,14 +337,14 @@ async function sendReset(){
   const email=$("f-email").value.trim(), msg=$("f-msg"); msg.className="msg";
   if(!email){ msg.className="msg err"; msg.textContent="Adj meg egy e-mail-címet."; return; }
   $("f-go").disabled=true;
-  const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo: location.href.split("#")[0] });
+  const {error}=await db.auth.resetPasswordForEmail(email,{redirectTo:location.href.split("#")[0]});
   $("f-go").disabled=false;
   if(error){ msg.className="msg err"; msg.textContent="Hiba: "+error.message; return; }
   msg.className="msg ok";
-  msg.innerHTML = "Elküldtük a visszaállító linket. Nézd meg a postaládád (a spam mappát is), és kattints a benne lévő linkre az új jelszó beállításához.";
+  msg.textContent="Elküldtük a visszaállító linket. Nézd meg a postaládád és a spam mappát is.";
 }
-async function openResetForm(){
-  $("modal").innerHTML = `
+function openResetForm(){
+  $("modal").innerHTML=`
     <button class="close" onclick="closeModal()">✕</button>
     <h3>Új jelszó beállítása</h3>
     <p class="hint">Add meg az új jelszavadat a Gastronoire fiókodhoz.</p>
@@ -316,46 +353,33 @@ async function openResetForm(){
     <button class="btn gold" id="r-go">Jelszó mentése</button>
     <div class="msg" id="r-msg"></div>`;
   $("overlay").classList.add("open");
-  $("r-go").onclick = doReset;
-  $("r-pass2").addEventListener("keydown",e=>{ if(e.key==="Enter") doReset(); });
+  $("r-go").onclick=doReset;
+  $("r-pass2").addEventListener("keydown",e=>{if(e.key==="Enter")doReset();});
 }
 async function doReset(){
-  const p1=$("r-pass").value, p2=$("r-pass2").value, msg=$("r-msg"); msg.className="msg";
-  if(p1.length<6){ msg.className="msg err"; msg.textContent="A jelszó legalább 6 karakter legyen."; return; }
-  if(p1!==p2){ msg.className="msg err"; msg.textContent="A két jelszó nem egyezik."; return; }
+  const p1=$("r-pass").value,p2=$("r-pass2").value,msg=$("r-msg");msg.className="msg";
+  if(p1.length<6){msg.className="msg err";msg.textContent="A jelszó legalább 6 karakter legyen.";return;}
+  if(p1!==p2){msg.className="msg err";msg.textContent="A két jelszó nem egyezik.";return;}
   $("r-go").disabled=true;
-  const { error } = await db.auth.updateUser({ password: p1 });
+  const {error}=await db.auth.updateUser({password:p1});
   $("r-go").disabled=false;
-  if(error){ msg.className="msg err"; msg.textContent="Hiba: "+error.message; return; }
-  msg.className="msg ok"; msg.textContent="Jelszó frissítve! Most már be tudsz jelentkezni.";
-  setTimeout(()=>{ closeModal(); loadMe().then(renderNav); }, 1400);
+  if(error){msg.className="msg err";msg.textContent="Hiba: "+error.message;return;}
+  msg.className="msg ok";msg.textContent="Jelszó frissítve! Most már be tudsz jelentkezni.";
+  setTimeout(()=>{closeModal();loadMe().then(renderNav);},1400);
 }
 function closeModal(){ $("overlay").classList.remove("open"); }
-$("overlay").onclick = e => { if(e.target.id==="overlay") closeModal(); };
+$("overlay").onclick=e=>{if(e.target.id==="overlay")closeModal();};
 
 /* ================= ÁLLAPOT BETÖLTÉSE ================= */
-async function loadMe(){
-  const { data:{ user } } = await db.auth.getUser();
-  if(!user){ me=null; myProfile=null; mySub=null; return; }
-  me = { id:user.id, email:user.email };
-  const { data:p } = await db.from("profiles").select("*").eq("id",user.id).maybeSingle();
-  myProfile = p || { id:user.id, email:user.email, role:"user" };
-  const { data:s } = await db.from("subscriptions").select("*").eq("user_id",user.id).order("created_at",{ascending:false}).limit(1).maybeSingle();
-  mySub = s;
+async function loadMe(session=null){
+  const user=session?.user || (await db.auth.getUser()).data.user;
+  if(!user){ me=null;myProfile=null;mySub=null;return; }
+  me={id:user.id,email:user.email};
+  const {data:p}=await db.from("profiles").select("*").eq("id",user.id).maybeSingle();
+  myProfile=p||{id:user.id,email:user.email,role:"user"};
+  const {data:s}=await db.from("subscriptions").select("*").eq("user_id",user.id).order("created_at",{ascending:false}).limit(1).maybeSingle();
+  mySub=s;
 }
-function renderNav(){
-  const c = $("nav-cta");
-  if(me){
-    const planTag = isAdmin() ? "Admin" : isMajom() ? "Majom ✦" : isPaid() ? "Prémium" : "Ingyenes";
-    c.innerHTML = `<span class="badge">${planTag}</span>
-      ${isAdmin()?`<button class="btn line sm" onclick="showAdmin()">Admin</button>`:""}
-      <button class="btn line sm" onclick="logout()">Kilépés</button>`;
-  } else {
-    c.innerHTML = `<button class="btn line sm" onclick="openAuth('login')">Belépés</button>
-      <button class="btn gold sm" onclick="openAuth('signup')">Regisztráció</button>`;
-  }
-}
-
 /* ================= CSOMAGVÁSÁRLÁS ================= */
 const PLAN_INFO = {
   trial7:  { months:0,  days:7,   amount:990,   label:"7 napos" },
@@ -519,7 +543,14 @@ async function sendGift(){
 }
 
 /* ================= BEKÖTÉS ================= */
-db.auth.onAuthStateChange(()=>{ loadMe().then(()=>{ renderNav(); if(isAdmin()) drawAdmin(); }); });
+db.auth.onAuthStateChange(async (event, session)=>{
+  if(event==="SIGNED_OUT"){ me=null;myProfile=null;mySub=null;renderNav();return; }
+  if(session){
+    await loadMe(session);
+    renderNav();
+    if(isAdmin()) drawAdmin();
+  }
+});
 (async function init(){
   await loadMe(); renderNav();
   if(isAdmin()) $("admin-sec").classList.remove("hidden");
